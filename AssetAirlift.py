@@ -1,7 +1,10 @@
-from CreateWallet import create_wallet
-from AssetsHelper import getHoldings, migrateHoldings, setWalletTo
-import Config, Helpers
 import asyncio
+
+import Config
+import Helpers
+from AssetsHelper import getHoldings, init_nonce, migrateHoldings, setWalletTo
+from CreateWallet import create_wallet
+
 
 async def main():
 
@@ -22,6 +25,7 @@ async def main():
     holdings = getHoldings(Config.wallet_from)
 
     # Migrate all erc20, erc721, erc1155 & Avax to new wallet
+    await init_nonce()
     await migrateHoldings(holdings)
 
 

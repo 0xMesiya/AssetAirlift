@@ -1,12 +1,15 @@
-from enum import Enum
-from web3 import Web3
-from web3.middleware import geth_poa_middleware
+import asyncio
+import copy
 import glob
 import json
-import asyncio
-import requests, copy, Config, Helpers
+from enum import Enum
 
+import requests
+from web3 import Web3
+from web3.middleware import geth_poa_middleware
 
+import Config
+import Helpers
 
 w3 = Web3(Web3.HTTPProvider("https://api.avax.network/ext/bc/C/rpc"))
 w3.middleware_onion.inject(geth_poa_middleware, layer=0)
@@ -18,6 +21,22 @@ getHoldingsForERCTypeUrl = "/v2/network/mainnet/evm/43114/address/{address}/erc{
 def setWalletTo(address: str):
     global wallet_to
     wallet_to = address
+
+nonce_lock = asyncio.Lock()
+next_nonce = None
+
+async def init_nonce():
+    global next_nonce
+    next_nonce = w3.eth.get_transaction_count(Config.wallet_from)
+
+async def get_next_nonce():
+    global next_nonce
+    async with nonce_lock:
+        if next_nonce is None:
+            next_nonce = w3.eth.get_transaction_count(Config.wallet_from)
+        nonce_to_use = next_nonce
+        next_nonce += 1
+        return nonce_to_use
 
 # enums for ercType(20, 721, 1155)
 class ERCType(Enum):
@@ -157,17 +176,16 @@ async def sendHelper(ERCType, contract, args = None):
     
     raw_tx = {
         "from": Config.wallet_from,
-        "to": wallet_to,
+        "to": contract.address,
         "gasPrice": w3.eth.gas_price,
         "gas": 200000,
-        "value": w3.to_hex(0),
+        "value": 0,
         "data": sendMapping(ERCType)(contract, args),
-        "nonce": w3.eth.get_transaction_count(Config.wallet_from),
+        "nonce": await get_next_nonce(),
         "chainId": 43114
     }
 
     signed_tx = w3.eth.account.sign_transaction(raw_tx, Config.wallet_priv_key)
-
     try:
         tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
@@ -227,8 +245,8 @@ async def sendNative():
         "to": wallet_to,
         "gasPrice": gasPrice,
         "gas": 200000,
-        "value": int(balance - gasPrice),
-        "nonce": w3.eth.get_transaction_count(Config.wallet_from),
+        "value": int(balance - (gasPrice*200000)),
+        "nonce": await get_next_nonce(),
         "chainId": 43114
     }
 
